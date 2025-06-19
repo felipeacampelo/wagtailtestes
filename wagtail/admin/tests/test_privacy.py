@@ -629,3 +629,126 @@ class TestPrivacyIndicators(WagtailTestUtils, TestCase):
         self.public_page.specific.__class__.private_page_options = (
             original_private_page_options
         )
+
+from django.test import TestCase
+from django.urls import reverse
+from django.contrib.auth import get_user_model
+from django.contrib.auth.models import Permission, Group
+from wagtail.models import Collection, CollectionViewRestriction
+
+
+class TestSetPrivacyMCDC(TestCase):
+    def setUp(self):
+        User = get_user_model()
+        self.user = User.objects.create_superuser(
+            username="admin", email="admin@example.com", password="pass"
+        )
+        self.client.login(username="admin", password="pass")
+
+        self.root = Collection.get_first_root_node()
+        self.collection = self.root.add_child(name="MC/DC Collection")
+
+    def test_ct1_usuario_sem_permissao(self):
+        """
+        CT1 - CD1 = True: Usuário autenticado com acesso ao admin,
+        mas sem permissão 'change_collection' deve receber 403.
+        """
+        self.client.logout()
+
+        User = get_user_model()
+        user2 = User.objects.create_user("user2", password="pass", is_staff=True)
+
+        group = Group.objects.create(name="Grupo restrito")
+        admin_permission = Permission.objects.get(codename="access_admin")
+        group.permissions.add(admin_permission)
+        user2.groups.add(group)
+
+        self.client.login(username="user2", password="pass")
+
+        response = self.client.get(reverse("wagtailadmin_collections:set_privacy", args=[self.collection.id]))
+
+        self.assertNotEqual(response.status_code, 302, msg="Usuário foi redirecionado — ainda sem acesso ao admin.")
+        self.assertEqual(response.status_code, 403)
+
+    def test_ct2_get_sem_restricao(self):
+        """
+        CT2 - CD2 = False: GET em coleção sem restrições.
+        """
+        response = self.client.get(reverse("wagtailadmin_collections:set_privacy", args=[self.collection.id]))
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.context["form"]["restriction_type"].value(), "none")
+
+    def test_ct3_get_com_restricao(self):
+        """
+        CT3 - CD2 = True: GET em coleção com restrição configurada.
+        """
+        CollectionViewRestriction.objects.create(
+            collection=self.collection,
+            restriction_type=CollectionViewRestriction.PASSWORD,
+            password="1234"
+        )
+        response = self.client.get(reverse("wagtailadmin_collections:set_privacy", args=[self.collection.id]))
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.context["form"]["restriction_type"].value(), "password")
+
+    def test_ct4_post_valido_sem_ancestral(self):
+        """
+        CT4 - CD3=T, CD4=T: POST válido e sem restrição ancestral.
+        """
+        response = self.client.post(
+            reverse("wagtailadmin_collections:set_privacy", args=[self.collection.id]),
+            data={"restriction_type": "password", "password": "abc123"}
+        )
+        self.assertEqual(response.status_code, 200)
+        self.assertIn("set_privacy_done", response.content.decode())
+
+    def test_ct5_post_invalido_sem_ancestral(self):
+        """
+        CT5 - CD3=F, CD4=T: POST inválido (sem senha).
+        """
+        response = self.client.post(
+            reverse("wagtailadmin_collections:set_privacy", args=[self.collection.id]),
+            data={"restriction_type": "password"}  # Falta a senha
+        )
+        self.assertEqual(response.status_code, 200)
+        self.assertIn("form", response.context)
+        self.assertTrue(response.context["form"].errors)
+
+    def test_ct6_post_valido_com_ancestral(self):
+        """
+        CT6 - CD3=T, CD4=F: POST válido, mas com restrição em ancestral.
+        """
+        ancestor = self.root.add_child(name="Ancestor")
+        self.collection = ancestor.add_child(name="Subcoleção com ancestral")
+
+        CollectionViewRestriction.objects.create(
+            collection=ancestor,
+            restriction_type=CollectionViewRestriction.PASSWORD,
+            password="rootpass"
+        )
+
+        response = self.client.post(
+            reverse("wagtailadmin_collections:set_privacy", args=[self.collection.id]),
+            data={"restriction_type": "password", "password": "abc123"}
+        )
+        self.assertTemplateUsed(response, "wagtailadmin/collection_privacy/ancestor_privacy.html")
+
+    def test_ct7_post_remove_restriction(self):
+        """
+        CT7 - CD3=T, CD4=T, CD5=T: POST com 'restriction_type' == 'none' deve deletar a restrição existente.
+        Cobre linhas 27, 29 e 30 do método set_privacy.
+        """
+        CollectionViewRestriction.objects.create(
+            collection=self.collection,
+            restriction_type=CollectionViewRestriction.PASSWORD,
+            password="senhaantiga"
+        )
+
+        response = self.client.post(
+            reverse("wagtailadmin_collections:set_privacy", args=[self.collection.id]),
+            data={"restriction_type": "none"}
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertIn("set_privacy_done", response.content.decode())
+        self.assertFalse(CollectionViewRestriction.objects.filter(collection=self.collection).exists())
