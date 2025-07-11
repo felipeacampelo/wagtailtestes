@@ -651,8 +651,9 @@ class TestSetPrivacyMCDC(TestCase):
     def test_ct1_usuario_sem_permissao(self):
         """
         CT1 - CD1 = True: Usuário autenticado com acesso ao admin,
-        mas sem permissão 'change_collection' deve receber 403.
+        mas sem permissão 'change_collection' deve receber 403. 
         """
+        # Está recebendo erro 302, retornando a tela de login,
         self.client.logout()
 
         User = get_user_model()

@@ -370,6 +370,32 @@ class TestTimesinceTags(SimpleTestCase):
         )
         self.assertIn('data-w-tooltip-placement-value="bottom"', html)
 
+    @freeze_time("2020-07-01 12:00:00")
+    def test_human_readable_date_localized(self):
+        """Test that human_readable_date uses localized date formats."""
+        from django.utils import translation
+        
+        now = timezone.now()
+        template = """
+            {% load wagtailadmin_tags %}
+            {% human_readable_date date %}
+        """
+        
+        # Teste em ingles (padrao)
+        with translation.override('en'):
+            html = Template(template).render(Context({"date": now}))
+            # Debug: print the actual HTML to see what format is being used
+            print(f"English HTML: {html}")
+            self.assertIn('data-w-tooltip-content-value="July 1, 2020, 9 p.m."', html)
+        
+        # Teste em frances (formato de data diferente)
+        with translation.override('fr'):
+            html = Template(template).render(Context({"date": now}))
+            # Debug: print the actual HTML to see what format is being used
+            print(f"French HTML: {html}")
+            # formato frances deve ser diferente do ingles
+            self.assertIn('data-w-tooltip-content-value="1 juillet 2020', html)
+
 
 @override_settings(
     WAGTAIL_CONTENT_LANGUAGES=[

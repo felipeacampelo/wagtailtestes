@@ -1355,10 +1355,12 @@ def keyboard_shortcuts_dialog(context):
 
 @register.inclusion_tag("wagtailadmin/shared/human_readable_date.html")
 def human_readable_date(date, description=None, placement="top"):
+    from django.utils.formats import get_format
+    
     if isinstance(date, datetime.datetime):
-        tooltip_format = getattr(settings, "DATETIME_FORMAT", "N j, Y, P")
+        tooltip_format = get_format("DATETIME_FORMAT")
     elif isinstance(date, datetime.date):
-        tooltip_format = getattr(settings, "DATE_FORMAT", "N j, Y")
+        tooltip_format = get_format("DATE_FORMAT")
     return {
         "date": date,
         "description": description,
